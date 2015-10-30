@@ -11,6 +11,8 @@ from api.annotations import api_wrapper, require_login, require_teacher, require
 from api.annotations import block_before_competition, block_after_competition
 from api.annotations import log_action
 
+from api.app import limiter
+
 blueprint = Blueprint("user_api", __name__)
 
 @blueprint.route("/authorize/<role>")
@@ -59,6 +61,7 @@ def disable_account_hook():
     api.user.disable_account_request(api.common.flat_multi(request.form), check_current=True)
     return WebSuccess("Your have successfully disabled your account!")
 
+@limiter.limit("15/minute")
 @blueprint.route('/reset_password', methods=['POST'])
 @api_wrapper
 def reset_password_hook():
@@ -92,6 +95,7 @@ def verify_user_hook():
     else:
         return redirect("/")
 
+@limiter.limit("15/minute")
 @blueprint.route('/login', methods=['POST'])
 @api_wrapper
 def login_hook():
