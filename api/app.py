@@ -5,8 +5,10 @@ Flask routing
 from flask import Flask, request, session, send_from_directory, render_template
 from werkzeug.contrib.fixers import ProxyFix
 from flask_mail import Mail
+from flask_limiter import Limiter
 
 app = Flask(__name__, static_path="/")
+limiter = Limiter(app, headers_enabled=True)
 app.wsgi_app = ProxyFix(app.wsgi_app)
 
 import api
