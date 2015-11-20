@@ -5,13 +5,75 @@ import json
 import mimetypes
 import os.path
 
+from api.common import check, validate, safe_fail
+from api.common import WebException, InternalException
+from api.annotations import log_action
+from voluptuous import Required, Length, Schema
+
 from datetime import datetime
 from api.common import WebSuccess, WebError, safe_fail
 from api.annotations import api_wrapper, require_login, require_teacher, require_admin, check_csrf
 from api.annotations import block_before_competition, block_after_competition
-from api.annotations import log_action
 
 blueprint = Blueprint("user_api", __name__)
+
+user_schema = Schema({
+    Required('email'): check(
+        ("Email must be between 5 and 50 characters.", [str, Length(min=5, max=50)]),
+        ("Your email does not look like an email address.", [lambda email: re.match(r".+@.+\..{2,}", email) is not None]),
+    ),
+    Required('firstname'): check(
+        ("First Name must be between 1 and 50 characters.", [str, Length(min=1, max=50)])
+    ),
+    Required('lastname'): check(
+        ("Last Name must be between 1 and 50 characters.", [str, Length(min=1, max=50)])
+    ),
+    Required('country'): check(
+        ("Please select a country", [str, Length(min=2, max=2)])
+    ),
+    Required('username'): check(
+        ("Usernames must be between 3 and 20 characters.", [str, Length(min=3, max=20)]),
+        ("Usernames must be alphanumeric.", [lambda u: all([c in string.digits + string.ascii_lowercase for c in u.lower()])]),
+        ("This username already exists.", [
+            lambda name: safe_fail(api.user.get_user, name=name) is None]),
+        ("This username conflicts with an existing team.", [
+            lambda name: safe_fail(api.team.get_team, name=name) is None])
+    ),
+    Required('password'):
+        check(("Passwords must be between 3 and 20 characters.", [str, Length(min=3, max=20)])
+    ),
+    Required('affiliation'):
+        check(("You must specify an affiliation.", [str, Length(min=3, max=50)])
+    ),
+    Required('eligibility'):
+        check(("You must specify whether or not your account is eligibile.", [str,
+            lambda status: status in ["eligible", "ineligible"]])
+    ),
+}, extra=True)
+
+new_team_schema = Schema({
+    Required('team-name-new'): check(
+        ("The team name must be between 3 and 40 characters.", [str, Length(min=3, max=40)]),
+        ("A team with that name already exists.", [
+            lambda name: safe_fail(api.team.get_team, name=name) is None])
+    ),
+    Required('team-password-new'):
+        check(("Team passphrase must be between 3 and 20 characters.", [str, Length(min=3, max=20)])),
+
+}, extra=True)
+
+existing_team_schema = Schema({
+    Required('team-name-existing'): check(
+        ("Existing team names must be between 3 and 50 characters.", [str, Length(min=3, max=50)]),
+        ("There is no existing team named that.", [
+            lambda name: api.team.get_team(name=name) != None]),
+        ("There are too many members on that team for you to join.", [
+            lambda name: len(api.team.get_team_uids(name=name, show_disabled=False)) < api.config.get_settings()["max_team_size"]
+        ])
+    ),
+    Required('team-password-existing'):
+        check(("Team passwords must be between 3 and 50 characters.", [str, Length(min=3, max=50)]))
+}, extra=True)
 
 @blueprint.route("/authorize/<role>")
 def authorize_role(role=None):
@@ -33,13 +95,100 @@ def authorize_role(role=None):
 @blueprint.route('/create_simple', methods=['POST'])
 @api_wrapper
 def create_simple_user_hook():
-    settings = api.config.get_settings()
+    """
+    Registers a new user and creates a team for them automatically. Validates all fields.
+    Assume arguments to be specified in a dict.
 
-    new_uid = api.user.create_simple_user_request(api.common.flat_multi(request.form))
+    Args:
+        username: user's username
+        password: user's password
+        firstname: user's first name
+        lastname: user's first name
+        email: user's email
+        eligibile: "eligibile" or "ineligibile"
+        affiliation: user's affiliation
+        gid: group registration
+        rid: registration id
+    """
+
+    settings = api.config.get_settings()
+    params = api.common.flat_multi(request.form)
+
+    #Will need to fix for pico
+    params["country"] = "US"
+    validate(user_schema, params)
+
+    whitelist = None
+
+    if params.get("gid", None):
+        group = api.group.get_group(gid=params["gid"])
+        group_settings = api.group.get_group_settings(gid=group["gid"])
+
+        #Force affiliation
+        params["affiliation"] = group["name"]
+
+        whitelist = group_settings["email_filter"]
+
+    user_is_teacher = False
+    user_was_invited = False
+
+    if params.get("rid", None):
+        key = api.token.find_key_by_token("registration_token", params["rid"])
+
+        if params.get("gid") != key["gid"]:
+            raise WebException("Registration token group and supplied gid do not match.")
+
+        if params["email"] != key["email"]:
+            raise WebException("Registration token email does not match the supplied one.")
+
+        user_is_teacher = key["teacher"]
+        user_was_invited = True
+
+        api.token.delete_token(key, "registration_token")
+    else:
+        if not verify_email_in_whitelist(params["email"], whitelist):
+            raise WebException("Your email does not belong to the whitelist. Please see the registration form for details.")
+
+    if api.config.get_settings()["captcha"]["enable_captcha"] and not api.user._validate_captcha(params):
+        raise WebException("Incorrect captcha!")
+
+    team_params = {
+        "team_name": params["username"],
+        "password": api.common.token(),
+        "eligible": params["eligibility"] == "eligible",
+        "affiliation": params["affiliation"]
+    }
+
+    tid = api.team.create_team(team_params)
+
+    if tid is None:
+        raise InternalException("Failed to create new team")
+
+    team = api.team.get_team(tid=tid)
+
+    # Create new user
+    uid = create_user(
+        params["username"],
+        params["firstname"],
+        params["lastname"],
+        params["email"],
+        hash_password(params["password"]),
+        team["tid"],
+        country=params["country"],
+        teacher=user_is_teacher,
+        verified=user_was_invited
+    )
+
+    if uid is None:
+        raise InternalException("There was an error during registration.")
+
+    # Join group after everything else has succeeded
+    if params.get("gid", None):
+        api.group.join_group(params["gid"], team["tid"], teacher=user_is_teacher)
 
     #Only automatically login if we don't have to verify
-    if api.user.get_user(uid=new_uid)["verified"]:
-        session['uid'] = new_uid
+    if api.user.get_user(uid=uid)["verified"]:
+        session['uid'] = uid
 
     return WebSuccess("User '{}' registered successfully!".format(request.form["username"]))
 
@@ -48,7 +197,34 @@ def create_simple_user_hook():
 @check_csrf
 @require_login
 def update_password_hook():
-    api.user.update_password_request(api.common.flat_multi(request.form), check_current=True)
+    """
+    Update account password.
+    Assumes args are keys in params.
+
+    Args:
+        uid: uid to reset
+        check_current: whether to ensure that current-password is correct
+        params:
+            current-password: the users current password
+            new-password: the new password
+            new-password-confirmation: confirmation of password
+    """
+
+    params = api.common.flat_multi(request.form)
+
+    user = api.user.get_user()
+
+    if not api.auth.confirm_password(params["current-password"], user['password_hash']):
+        raise WebException("Your current password is incorrect.")
+
+    if params["new-password"] != params["new-password-confirmation"]:
+        raise WebException("Your passwords do not match.")
+
+    if len(params["new-password"]) == 0:
+        raise WebException("Your password cannot be empty.")
+
+    api.user.update_password(user['uid'], params["new-password"])
+
     return WebSuccess("Your password has been successfully updated!")
 
 @blueprint.route('/disable_account', methods=['POST'])
@@ -56,7 +232,26 @@ def update_password_hook():
 @check_csrf
 @require_login
 def disable_account_hook():
-    api.user.disable_account_request(api.common.flat_multi(request.form), check_current=True)
+    """
+    Disable user account so they can't login or consume space on a team.
+    Assumes args are keys in params.
+
+    Args:
+        uid: uid to reset
+        check_current: whether to ensure that current-password is correct
+        params:
+            current-password: the users current password
+    """
+
+    params = api.common.flat_multi(request.form)
+
+    user = api.user.get_user(uid=uid)
+
+    if not api.auth.confirm_password(params["current-password"], user['password_hash']):
+        raise WebException("Your current password is incorrect.")
+    api.user.disable_account(user['uid'])
+    api.auth.logout()
+
     return WebSuccess("Your have successfully disabled your account!")
 
 @blueprint.route('/reset_password', methods=['POST'])
