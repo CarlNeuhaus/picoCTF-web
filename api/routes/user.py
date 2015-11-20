@@ -257,7 +257,7 @@ def disable_account_hook():
 @blueprint.route('/reset_password', methods=['POST'])
 @api_wrapper
 def reset_password_hook():
-    username = request.form.get("username", None)
+    username = request.form.get("username", "")
 
     api.email.request_password_reset(username)
     return WebSuccess("A password reset link has been sent to the email address provided during registration.")
@@ -265,9 +265,9 @@ def reset_password_hook():
 @blueprint.route('/confirm_password_reset', methods=['POST'])
 @api_wrapper
 def confirm_password_reset_hook():
-    password = request.form.get("new-password")
-    confirm = request.form.get("new-password-confirmation")
-    token_value = request.form.get("reset-token")
+    password = request.form.get("new-password", "")
+    confirm = request.form.get("new-password-confirmation", "")
+    token_value = request.form.get("reset-token", "")
 
     api.email.reset_password(token_value, password, confirm)
     return WebSuccess("Your password has been reset")
@@ -290,8 +290,8 @@ def verify_user_hook():
 @blueprint.route('/login', methods=['POST'])
 @api_wrapper
 def login_hook():
-    username = request.form.get('username')
-    password = request.form.get('password')
+    username = request.form.get('username', "")
+    password = request.form.get('password', "")
     api.auth.login(username, password)
     return WebSuccess(message="Successfully logged in as " + username,
                       data={'teacher': api.user.is_teacher(), 'admin': api.user.is_admin()})
