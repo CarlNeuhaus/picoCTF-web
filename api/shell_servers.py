@@ -69,8 +69,6 @@ def add_server(params):
 
     db = api.common.get_conn()
 
-    validate(server_schema, params)
-
     if isinstance(params["port"], str):
         params["port"] = int(params["port"])
 
