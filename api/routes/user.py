@@ -5,6 +5,8 @@ import json
 import mimetypes
 import os.path
 
+import string, re
+
 from api.common import check, validate, safe_fail
 from api.common import WebException, InternalException
 from api.annotations import log_action
@@ -146,7 +148,7 @@ def create_simple_user_hook():
 
         api.token.delete_token(key, "registration_token")
     else:
-        if not verify_email_in_whitelist(params["email"], whitelist):
+        if not api.user.verify_email_in_whitelist(params["email"], whitelist):
             raise WebException("Your email does not belong to the whitelist. Please see the registration form for details.")
 
     if api.config.get_settings()["captcha"]["enable_captcha"] and not api.user._validate_captcha(params):
@@ -167,12 +169,12 @@ def create_simple_user_hook():
     team = api.team.get_team(tid=tid)
 
     # Create new user
-    uid = create_user(
+    uid = api.user.create_user(
         params["username"],
         params["firstname"],
         params["lastname"],
         params["email"],
-        hash_password(params["password"]),
+        api.user.hash_password(params["password"]),
         team["tid"],
         country=params["country"],
         teacher=user_is_teacher,
