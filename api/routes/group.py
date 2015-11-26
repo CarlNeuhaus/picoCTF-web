@@ -36,10 +36,21 @@ leave_group_schema = Schema({
 
 delete_group_schema = Schema({
     Required("group-name"): check(
-        ("Class name must be between 3 and 50 characters.", [str, Length(min=3, max=100)]),
+        ("Class name must be between 3 and 50 characters.", [str, Length(min=3, max=50)]),
     )
 }, extra=True)
 
+group_name_schema = Schema({
+    Required("group-name"): check(
+        ("Group names must be between 3 and 50 characters.", [str, Length(min=3, max=50)]),
+    )
+}, extra=True)
+
+gid_schema = Schema({
+    Required("gid"): check(
+        ("You have to specify a gid for this operation.", [str, Length(min=1)]),
+    )
+}, extra=True)
 
 blueprint = Blueprint("group_api", __name__)
 
@@ -47,9 +58,11 @@ blueprint = Blueprint("group_api", __name__)
 @api_wrapper
 @require_login
 def get_group_hook():
-    name = request.form.get("group-name")
-    owner = request.form.get("group-owner")
-    gid = request.form.get("gid")
+
+    #Two options distinct options so we don't validate against volup.
+    name = request.form.get("group-name", None)
+    owner = request.form.get("group-owner", None)
+    gid = request.form.get("gid", None)
 
     owner_tid = None
     if not gid or len(gid) == 0:
@@ -68,6 +81,9 @@ def get_group_hook():
 @blueprint.route('/settings', methods=['GET'])
 @api_wrapper
 def get_group_settings_hook():
+
+    validate(gid_schema, dict(request.args))
+
     gid = request.args.get("gid")
     group = api.group.get_group(gid=gid)
 
@@ -78,12 +94,22 @@ def get_group_settings_hook():
 
     return WebSuccess(data=prepared_data)
 
+settings_schema = Schema({
+    Required("settings"): check(
+        ("You have to provide updated settings.", [str])
+    )
+}, extra=True)
+
 @blueprint.route('/settings', methods=['POST'])
 @api_wrapper
 @require_teacher
 def change_group_settings_hook():
-    gid = request.form.get("gid")
-    settings = json.loads(request.form.get("settings"))
+
+    validate(gid_schema, dict(request.form))
+    validate(settings_schema, dict(request.form))
+
+    gid = request.form["gid"]
+    settings = json.loads(request.form["settings"])
 
     user = api.user.get_user()
     group = api.group.get_group(gid=gid)
@@ -96,21 +122,28 @@ def change_group_settings_hook():
     else:
         return WebError(message="You do not have sufficient privilege to do that.")
 
+group_invite_schema = Schema({
+    Required("email"): check(
+        ("Class name must be between 3 and 50 characters.", [str, Length(min=3, max=50)]),
+    ),
+    Required("role"): check(
+        ("Role is either 'member' or 'teacher'.", [str, lambda r: r in ["member", "teacher"]]),
+    )
+})
+
 @blueprint.route('/invite', methods=['POST'])
 @api_wrapper
 @require_teacher
 def invite_email_to_group_hook():
-    gid = request.form.get("gid")
-    email = request.form.get("email")
-    role = request.form.get("role")
+
+    validate(gid_schema, dict(request.args))
+    validate(group_invite_schema, dict(request.args))
+
+    gid = request.form["gid"]
+    email = request.form["email"]
+    role = request.form["role"]
 
     user = api.user.get_user()
-
-    if gid is None or email is None or len(email) == 0:
-        return WebError(message="You must specify a gid and email address to invite.")
-
-    if role not in ["member", "teacher"]:
-        return WebError(message="A user's role is either a member or teacher.")
 
     group = api.group.get_group(gid=gid)
     roles = api.group.get_roles_in_group(group["gid"], uid=user["uid"])
@@ -132,6 +165,9 @@ def get_group_list_hook():
 @api_wrapper
 @require_teacher
 def get_teacher_information_hook(gid=None):
+
+    validate(gid_schema, dict(request.args))
+
     gid = request.args.get("gid")
 
     user = api.user.get_user()
@@ -146,6 +182,9 @@ def get_teacher_information_hook(gid=None):
 @api_wrapper
 @require_teacher
 def get_memeber_information_hook(gid=None):
+
+    validate(gid_schema, dict(request.args))
+
     gid = request.args.get("gid")
 
     user = api.user.get_user()
@@ -160,6 +199,8 @@ def get_memeber_information_hook(gid=None):
 @api_wrapper
 @require_teacher
 def get_group_score_hook():
+
+    validate(group_name_schema, dict(request.args))
     name = request.args.get("group-name")
 
     user = api.user.get_user()
@@ -294,10 +335,9 @@ def delete_group_hook():
 @api_wrapper
 @require_teacher
 def get_flag_shares():
-    gid = request.args.get("gid", None)
 
-    if gid is None:
-        return WebError("You must specify a gid when looking at flag sharing statistics.")
+    validate(gid_schema, dict(request.args))
+    gid = request.args.get("gid")
 
     user = api.user.get_user()
     roles = api.group.get_roles_in_group(gid, uid=user["uid"])
@@ -306,11 +346,21 @@ def get_flag_shares():
 
     return WebSuccess(data=api.stats.check_invalid_instance_submissions(gid=gid))
 
+remove_team_schema = Schema({
+    Required("tid"): check(
+        ("You need to specify the tid of the team you want to remove.", [str, Length(min=1)]),
+    )
+}, extra=True)
+
 @blueprint.route('/teacher/leave', methods=['POST'])
 @api_wrapper
 @check_csrf
 @require_teacher
 def force_leave_group_hook():
+
+    validate(gid_schema, dict(request.args))
+    validate(remove_team_schema, dict(request.args))
+
     gid = request.form.get("gid")
     tid = request.form.get("tid")
 
@@ -326,10 +376,23 @@ def force_leave_group_hook():
 
     return WebSuccess("Team has successfully left the group.")
 
+role_switch_schema = Schema({
+    Required("tid"): check(
+        ("You need to specify the tid of the team you want to remove.", [str, Length(min=1)]),
+    ),
+    Required("role"): check(
+        ("Role is either 'member' or 'teacher'.", [str, lambda r: r in ["member", "teacher"]]),
+    )
+}, extra=True)
+
 @blueprint.route('/teacher/role_switch', methods=['POST'])
 @api_wrapper
 @require_teacher
 def switch_user_role_group_hook():
+
+    validate(gid_schema, dict(request.args))
+    validate(role_switch_schema, dict(request.args))
+
     gid = request.form.get("gid")
     tid = request.form.get("tid")
     role = request.form.get("role")
