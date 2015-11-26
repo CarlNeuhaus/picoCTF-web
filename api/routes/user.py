@@ -31,7 +31,7 @@ user_schema = Schema({
         ("Last Name must be between 1 and 50 characters.", [str, Length(min=1, max=50)])
     ),
     Required('country'): check(
-        ("Please select a country", [str, Length(min=2, max=2)])
+        ("Please select a country.", [str, Length(min=2, max=2)])
     ),
     Required('username'): check(
         ("Usernames must be between 3 and 20 characters.", [str, Length(min=3, max=20)]),
@@ -194,6 +194,13 @@ def create_simple_user_hook():
 
     return WebSuccess("User '{}' registered successfully!".format(request.form["username"]))
 
+
+update_password_schema = Schema({
+    Required('new-password'): check(("You need to specify a new password.", [str, Length(min=1)])),
+    Required('new-password-confirmation'): check(("You need to specify a confirmation password.", [str, Length(min=1)])),
+    Required('current-password'): check(("You must provide a valid token to reset your password.", [str, Length(min=1)]))
+}, extra=True)
+
 @blueprint.route('/update_password', methods=['POST'])
 @api_wrapper
 @check_csrf
@@ -214,6 +221,8 @@ def update_password_hook():
 
     params = api.common.flat_multi(request.form)
 
+    validate(update_password_schema, params)
+
     user = api.user.get_user()
 
     if not api.auth.confirm_password(params["current-password"], user['password_hash']):
@@ -228,6 +237,13 @@ def update_password_hook():
     api.user.update_password(user['uid'], params["new-password"])
 
     return WebSuccess("Your password has been successfully updated!")
+
+
+disable_account_schema = Schema({
+    Required('new-password'): check(("You need to specify a new password.", [str, Length(min=1)])),
+    Required('new-password-confirmation'): check(("You did not specify a confirmation password.", [str, Length(min=1)])),
+    Required('reset-token'): check(("You must provide a valid token to reset your password.", [str, Length(min=1)]))
+}, extra=True)
 
 @blueprint.route('/disable_account', methods=['POST'])
 @api_wrapper
@@ -247,38 +263,57 @@ def disable_account_hook():
 
     params = api.common.flat_multi(request.form)
 
+    validate(disable_account_schema, params)
+
     user = api.user.get_user(uid=uid)
 
     if not api.auth.confirm_password(params["current-password"], user['password_hash']):
         raise WebException("Your current password is incorrect.")
+
     api.user.disable_account(user['uid'])
     api.auth.logout()
 
     return WebSuccess("Your have successfully disabled your account!")
 
+reset_password_schema = Schema({
+    Required('username'): check(
+        ("You need to specify a username to reset its password.", [str, Length(min=1)]))}, extra=True)
+
 @blueprint.route('/reset_password', methods=['POST'])
 @api_wrapper
 def reset_password_hook():
-    username = request.form.get("username", "")
+
+    validate(reset_password_schema, dict(request.form))
+
+    username = request.form["username"]
 
     api.email.request_password_reset(username)
     return WebSuccess("A password reset link has been sent to the email address provided during registration.")
 
+confirm_password_reset_schema = Schema({
+    Required('new-password'): check(("You need to specify a new password.", [str, Length(min=1)])),
+    Required('new-password-confirmation'): check(("You did not specify a confirmation password.", [str, Length(min=1)])),
+    Required('reset-token'): check(("You must provide a valid token to reset your password.", [str, Length(min=1)]))
+}, extra=True)
+
 @blueprint.route('/confirm_password_reset', methods=['POST'])
 @api_wrapper
 def confirm_password_reset_hook():
-    password = request.form.get("new-password", "")
-    confirm = request.form.get("new-password-confirmation", "")
-    token_value = request.form.get("reset-token", "")
+
+    validate(confirm_password_reset_schema, dict(request.form))
+
+    password = request.form["new-password"]
+    confirm = request.form["new-password-confirmation"]
+    token_value = request.form["reset-token"]
 
     api.email.reset_password(token_value, password, confirm)
     return WebSuccess("Your password has been reset")
 
 @blueprint.route('/verify', methods=['GET'])
-#@api_wrapper
+#@api_wrapper -- not using vouluptous as this isn't api_wrapped
 def verify_user_hook():
-    uid = request.args.get("uid")
-    token = request.args.get("token")
+    uid = request.args.get("uid", "")
+    token = request.args.get("token", "")
 
     # Needs to be more telling of success
     if api.common.safe_fail(api.user.verify_user, uid, token):
@@ -289,11 +324,19 @@ def verify_user_hook():
     else:
         return redirect("/")
 
+login_schema = Schema({
+    Required('username'): check(("You need to specify a username to login.", [str, Length(min=1)])),
+    Required('password'): check(("You need to speify a password to login.", [str, Length(min=1)]))
+}, extra=True)
+
 @blueprint.route('/login', methods=['POST'])
 @api_wrapper
 def login_hook():
-    username = request.form.get('username', "")
-    password = request.form.get('password', "")
+
+    validate(login_schema, dict(request.form))
+    username = request.form["username"]
+    password = request.form["password"]
+
     api.auth.login(username, password)
     return WebSuccess(message="Successfully logged in as " + username,
                       data={'teacher': api.user.is_teacher(), 'admin': api.user.is_admin()})
