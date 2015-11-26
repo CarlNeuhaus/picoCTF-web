@@ -7,6 +7,9 @@ from api.annotations import api_wrapper, require_login, require_teacher, require
 from api.annotations import block_before_competition, block_after_competition
 from api.annotations import log_action
 
+from api.common import validate, check, WebException, InternalException, safe_fail
+from voluptuous import Schema, Required, Length
+
 blueprint = Blueprint("problem_api", __name__)
 
 @blueprint.route('', methods=['GET'])
@@ -36,6 +39,15 @@ def get_solved_problems_hook():
 
     return WebSuccess(data=solved_problems)
 
+problem_submit_schema = Schema({
+    Required("pid"): check(
+        ("You need to specify the problem's pid.", [str, Length(min=1)]),
+    ),
+    Required("key"): check(
+        ("You need to supply the flag you intend on submitting.", [str, Length(min=1)])
+    )
+}, extra=True)
+
 @blueprint.route('/submit', methods=['POST'])
 @api_wrapper
 @check_csrf
@@ -43,11 +55,15 @@ def get_solved_problems_hook():
 @block_before_competition(WebError("The competition has not begun yet!"))
 @block_after_competition(WebError("The competition is over!"))
 def submit_key_hook():
+
+    validate(problem_submit_schema, dict(request.form))
+
     user_account = api.user.get_user()
     tid = user_account['tid']
     uid = user_account['uid']
-    pid = request.form.get('pid', '')
-    key = request.form.get('key', '')
+
+    pid = request.form.get('pid')
+    key = request.form.get('key')
     ip = request.remote_addr
 
     result = api.problem.submit_key(tid, pid, key, uid, ip)
@@ -66,17 +82,26 @@ def get_single_problem_hook(pid):
     problem_info = api.problem.get_problem(pid, tid=api.user.get_user()['tid'])
     return WebSuccess(data=problem_info)
 
+problem_feedback_schema = Schema({
+    Required("pid"): check(
+        ("You need to specify the problem's pid.", [str, Length(min=1)]),
+    ),
+    Required("feedback"): check(
+        ("Feedback is true for upvote and false for downvote.", [str, lambda f: f in ["true", "false"]])
+    )
+}, extra=True)
+
 @blueprint.route('/feedback', methods=['POST'])
 @api_wrapper
 @check_csrf
 @require_login
 @block_before_competition(WebError("The competition has not begun yet!"))
 def problem_feedback_hook():
-    feedback = json.loads(request.form.get("feedback", ""))
-    pid = request.form.get("pid", None)
 
-    if feedback is None or pid is None:
-        return WebError("Please supply a pid and feedback.")
+    validate(problem_feedback_schema, dict(request.form))
+
+    feedback = json.loads(request.form.get("feedback"))
+    pid = request.form.get("pid")
 
     if not api.config.get_settings()["enable_feedback"]:
         return WebError("Problem feedback is not currently being accepted.")
@@ -92,11 +117,22 @@ def problem_reviews_hook():
     uid = api.user.get_user()['uid']
     return WebSuccess(data=api.problem_feedback.get_problem_feedback(uid=uid))
 
+hint_schema = Schema({
+    Required("pid"): check(
+        ("You need to specify the problem's pid.", [str, Length(min=1)]),
+    ),
+    Required("source"): check(
+        ("You need to provide a source for your hint.", [str])
+    )
+}, extra=True)
+
 @blueprint.route("/hint", methods=['GET'])
 @api_wrapper
 @require_login
 @block_before_competition(WebError("The competition has not begun yet!"))
 def request_problem_hint_hook():
+
+    validate(hint_schema, request.args)
 
     @log_action
     def hint(pid, source):
@@ -117,12 +153,21 @@ def request_problem_hint_hook():
     hint(pid, source)
     return WebSuccess("Hint noted.")
 
+load_problems_schema = Schema({
+    Required("competition_data"): check(
+        ("You have to provide the competition data.", [str])
+    )
+}, extra=True)
+
 @blueprint.route("/load_problems", methods=['POST'])
 @api_wrapper
 @require_login
 @require_admin
 def load_problems():
-    data = json.loads(request.form.get("competition_data", ""))
+
+    validate(load_problems_schema, dict(request.form))
+
+    data = json.loads(request.form.get("competition_data"))
 
     api.problem.load_published(data)
     return WebSuccess("Inserted {} problems.".format(len(data["problems"])))
