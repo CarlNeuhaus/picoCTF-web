@@ -4,9 +4,10 @@ import json, traceback, bson
 import api
 
 from api.common import WebSuccess, WebError, WebException, InternalException, SevereInternalException
-from datetime import datetime
+import datetime
 from functools import wraps
 from flask import session, request, abort
+from pymongo import ReturnDocument
 
 write_logs_to_db = False # Default value, can be overwritten by api.py
 
@@ -144,7 +145,7 @@ def block_before_competition(return_result):
 
         @wraps(f)
         def wrapper(*args, **kwds):
-            if datetime.utcnow().timestamp() > api.config.get_settings()["start_time"].timestamp():
+            if datetime.datetime.utcnow().timestamp() > api.config.get_settings()["start_time"].timestamp():
                 return f(*args, **kwds)
             else:
                 return return_result
@@ -163,9 +164,46 @@ def block_after_competition(return_result):
 
         @wraps(f)
         def wrapper(*args, **kwds):
-            if datetime.utcnow().timestamp() < api.config.get_settings()["end_time"].timestamp():
+            if datetime.datetime.utcnow().timestamp() < api.config.get_settings()["end_time"].timestamp():
                 return f(*args, **kwds)
             else:
                 return return_result
         return wrapper
+    return decorator
+
+def rate_limit(requests=100, window=60):
+    """
+    Limits the number of requests by the current remote IP for a wrapped endpoint
+
+    Default limit is 100 requests per minute.
+    """
+
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            db = api.common.get_conn()
+
+            entry = {
+                "ip": request.remote_addr,
+                "endpoint": request.endpoint
+            }
+
+            expireTime = datetime.datetime.now() + datetime.timedelta(seconds=window)
+
+            result = db.rate_limits.find_one_and_update(
+                    filter = entry,
+                    update = {
+                        "$inc": {"count": 1},
+                        "$setOnInsert": dict(entry, expireAt=expireTime)
+                    },
+                    projection = {"count" : 1, "expireAt" : 1},
+                    upsert = True,
+                    return_document = ReturnDocument.AFTER)
+
+            if result["count"] > requests:
+                # they will likely have to wait less than the full window, but oh well
+                raise WebException("Too Many Requests. Wait {} seconds before sending another.".format(window))
+            else:
+                return f(*args, **kwargs)
+        return wrapped
     return decorator

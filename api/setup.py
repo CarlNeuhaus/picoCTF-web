@@ -33,4 +33,8 @@ def index_mongo():
     db.cache.ensure_index("kwargs", name="kwargs")
     db.cache.ensure_index("args", name="args")
 
+    db.rate_limits.ensure_index("expireAt", expireAfterSeconds=0)
+    db.rate_limits.ensure_index("ip", name="ip")
+    db.rate_limits.ensure_index("endpoint", name="endpoint")
+
     db.shell_servers.ensure_index("sid", unique=True, name="unique shell server id")

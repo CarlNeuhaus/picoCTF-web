@@ -8,7 +8,7 @@ import os.path
 from datetime import datetime
 from api.common import WebSuccess, WebError, safe_fail
 from api.annotations import api_wrapper, require_login, require_teacher, require_admin, check_csrf
-from api.annotations import block_before_competition, block_after_competition
+from api.annotations import block_before_competition, block_after_competition, rate_limit
 from api.annotations import log_action
 
 blueprint = Blueprint("user_api", __name__)
@@ -32,6 +32,7 @@ def authorize_role(role=None):
 
 @blueprint.route('/create_simple', methods=['POST'])
 @api_wrapper
+@rate_limit(requests=10, window=60)
 def create_simple_user_hook():
     settings = api.config.get_settings()
 
@@ -47,6 +48,7 @@ def create_simple_user_hook():
 @api_wrapper
 @check_csrf
 @require_login
+@rate_limit(requests=10, window=60)
 def update_password_hook():
     api.user.update_password_request(api.common.flat_multi(request.form), check_current=True)
     return WebSuccess("Your password has been successfully updated!")
@@ -55,12 +57,14 @@ def update_password_hook():
 @api_wrapper
 @check_csrf
 @require_login
+@rate_limit(requests=10, window=60)
 def disable_account_hook():
     api.user.disable_account_request(api.common.flat_multi(request.form), check_current=True)
     return WebSuccess("Your have successfully disabled your account!")
 
 @blueprint.route('/reset_password', methods=['POST'])
 @api_wrapper
+@rate_limit(requests=10, window=60)
 def reset_password_hook():
     username = request.form.get("username", None)
 
@@ -94,6 +98,7 @@ def verify_user_hook():
 
 @blueprint.route('/login', methods=['POST'])
 @api_wrapper
+@rate_limit(requests=20, window=60)
 def login_hook():
     username = request.form.get('username')
     password = request.form.get('password')

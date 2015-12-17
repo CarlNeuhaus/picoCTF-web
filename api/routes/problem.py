@@ -4,7 +4,7 @@ import api, json
 
 from api.common import WebSuccess, WebError
 from api.annotations import api_wrapper, require_login, require_teacher, require_admin, check_csrf
-from api.annotations import block_before_competition, block_after_competition
+from api.annotations import block_before_competition, block_after_competition, rate_limit
 from api.annotations import log_action
 
 blueprint = Blueprint("problem_api", __name__)
@@ -42,6 +42,7 @@ def get_solved_problems_hook():
 @require_login
 @block_before_competition(WebError("The competition has not begun yet!"))
 @block_after_competition(WebError("The competition is over!"))
+@rate_limit(requests=50, window=60)
 def submit_key_hook():
     user_account = api.user.get_user()
     tid = user_account['tid']
@@ -71,6 +72,7 @@ def get_single_problem_hook(pid):
 @check_csrf
 @require_login
 @block_before_competition(WebError("The competition has not begun yet!"))
+@rate_limit(requests=20, window=60)
 def problem_feedback_hook():
     feedback = json.loads(request.form.get("feedback", ""))
     pid = request.form.get("pid", None)

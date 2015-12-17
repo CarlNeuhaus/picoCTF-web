@@ -4,7 +4,7 @@ import api
 
 from api.common import WebSuccess, WebError
 from api.annotations import api_wrapper, require_login, require_teacher, require_admin, check_csrf
-from api.annotations import block_before_competition, block_after_competition
+from api.annotations import block_before_competition, block_after_competition, rate_limit
 from api.annotations import log_action
 
 blueprint = Blueprint("team_api", __name__)
@@ -28,6 +28,7 @@ def get_team_score_hook():
 @blueprint.route('/create', methods=['POST'])
 @api_wrapper
 @require_login
+@rate_limit(requests=20, window=60)
 def create_new_team_hook():
     api.team.create_new_team_request(api.common.flat_multi(request.form))
     return WebSuccess("You now belong to your newly created team.")
@@ -35,6 +36,7 @@ def create_new_team_hook():
 @blueprint.route('/join', methods=['POST'])
 @api_wrapper
 @require_login
+@rate_limit(requests=20, window=60)
 def join_team_hook():
     api.team.join_team_request(api.common.flat_multi(request.form))
     return WebSuccess("You have successfully joined that team!")

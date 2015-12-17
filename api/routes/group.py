@@ -4,7 +4,7 @@ import api, json
 
 from api.common import WebSuccess, WebError
 from api.annotations import api_wrapper, require_login, require_teacher, require_admin, check_csrf
-from api.annotations import block_before_competition, block_after_competition
+from api.annotations import block_before_competition, block_after_competition, rate_limit
 from api.annotations import log_action
 
 from voluptuous import Required, Length, Schema
@@ -81,6 +81,7 @@ def get_group_settings_hook():
 @blueprint.route('/settings', methods=['POST'])
 @api_wrapper
 @require_teacher
+@rate_limit(requests=20, window=60)
 def change_group_settings_hook():
     gid = request.form.get("gid")
     settings = json.loads(request.form.get("settings"))
@@ -99,6 +100,7 @@ def change_group_settings_hook():
 @blueprint.route('/invite', methods=['POST'])
 @api_wrapper
 @require_teacher
+@rate_limit(requests=20, window=60)
 def invite_email_to_group_hook():
     gid = request.form.get("gid")
     email = request.form.get("email")
@@ -178,6 +180,7 @@ def get_group_score_hook():
 @api_wrapper
 @check_csrf
 @require_admin
+@rate_limit(requests=20, window=60)
 def create_group_hook():
     """
     Creates a new group. Validates forms.
@@ -200,6 +203,7 @@ def create_group_hook():
 @api_wrapper
 @check_csrf
 @require_login
+@rate_limit(requests=20, window=60)
 def join_group_hook():
     """
     Tries to place a team into a group. Validates forms.
@@ -236,6 +240,7 @@ def join_group_hook():
 @api_wrapper
 @check_csrf
 @require_login
+@rate_limit(requests=20, window=60)
 def leave_group_hook():
     """
     Tries to remove a team from a group. Validates forms.
@@ -263,6 +268,7 @@ def leave_group_hook():
 @api_wrapper
 @check_csrf
 @require_teacher
+@rate_limit(requests=20, window=60)
 def delete_group_hook():
     """
     Tries to delete a group. Validates forms.
@@ -310,6 +316,7 @@ def get_flag_shares():
 @api_wrapper
 @check_csrf
 @require_teacher
+@rate_limit(requests=20, window=60)
 def force_leave_group_hook():
     gid = request.form.get("gid")
     tid = request.form.get("tid")
@@ -329,6 +336,7 @@ def force_leave_group_hook():
 @blueprint.route('/teacher/role_switch', methods=['POST'])
 @api_wrapper
 @require_teacher
+@rate_limit(requests=20, window=60)
 def switch_user_role_group_hook():
     gid = request.form.get("gid")
     tid = request.form.get("tid")
