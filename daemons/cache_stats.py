@@ -18,8 +18,9 @@ def run():
     cache(api.stats.get_top_teams_score_progressions, eligible=True)
     cache(api.stats.get_top_teams_score_progressions, eligible=False)
 
-    print("Caching the scoreboard graph for each group...")
+    print("Caching the scoreboard and graph for each group...")
     for group in api.group.get_all_groups():
+        cache(api.stats.get_group_scores, gid=group['gid'])
         cache(api.stats.get_top_teams_score_progressions, gid=group['gid'], eligible=True)
 
     print("Caching number of solves for each problem.")
