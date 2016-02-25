@@ -85,6 +85,8 @@ bundle_schema = Schema({
         ("The bundle problems must be a list.", [list])),
     Required("description"): check(
         ("The bundle description must be a string.", [str])),
+    "version": check(
+        ("The bundle version must be a string.", [str])),
     "organization": check(
         ("The bundle organization must be a string.", [str])),
     "dependencies": check(
