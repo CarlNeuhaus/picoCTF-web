@@ -16,6 +16,14 @@ _check_email_format = lambda email: re.match(r".+@.+\..{2,}", email) is not None
 def _check_username(username):
     return all([c in string.digits + string.ascii_lowercase for c in username.lower()])
 
+def check_blacklisted_usernames(username):
+    """
+    Verify that the username isn't present in the username blacklist.
+    """
+
+    settings = api.config.get_settings()
+    return username not in settings.get("username_blacklist", api.config.default_settings["username_blacklist"])
+
 def verify_email_in_whitelist(email, whitelist=None):
     """
     Verify that the email address passes the global whitelist if one exists.
