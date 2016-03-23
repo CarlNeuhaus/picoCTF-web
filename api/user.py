@@ -66,7 +66,8 @@ user_schema = Schema({
         ("This username already exists.", [
             lambda name: safe_fail(get_user, name=name) is None]),
         ("This username conflicts with an existing team.", [
-            lambda name: safe_fail(api.team.get_team, name=name) is None])
+            lambda name: safe_fail(api.team.get_team, name=name) is None]),
+        ("This username is reserved. Please choose another one.", [check_blacklisted_usernames]),
     ),
     Required('password'):
         check(("Passwords must be between 3 and 20 characters.", [str, Length(min=3, max=20)])
